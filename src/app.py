@@ -1,0 +1,45 @@
+from __future__ import annotations
+
+import logging
+import time
+
+from config import load_settings
+from logging_config import configure_logging
+from orchestration.handler import handle_text
+from telegram.client import TelegramClient
+from todoist.client import TodoistClient
+
+
+def main() -> None:
+    settings = load_settings()
+    configure_logging(settings.log_level)
+
+    logger = logging.getLogger("assistant")
+    telegram = TelegramClient(settings.telegram_bot_token)
+    todoist = TodoistClient(settings.todoist_api_token)
+
+    offset: int | None = None
+    logger.info("Assistant started with Telegram polling")
+
+    while True:
+        try:
+            updates = telegram.get_updates(offset=offset)
+            for message in updates:
+                offset = message.update_id + 1
+
+                if message.user_id not in settings.telegram_allowed_user_ids:
+                    logger.warning(
+                        "Ignoring unauthorized user", extra={"user_id": message.user_id, "chat_id": message.chat_id}
+                    )
+                    continue
+
+                reply = handle_text(message.text, todoist)
+                telegram.send_message(chat_id=message.chat_id, text=reply)
+
+        except Exception:
+            logger.exception("Polling loop error")
+            time.sleep(settings.poll_interval_seconds)
+
+
+if __name__ == "__main__":
+    main()
