@@ -1,10 +1,52 @@
-from orchestration.handler import handle_text, parse_create_command
+from orchestration.handler import (
+    handle_text,
+    parse_create_command,
+    parse_edit_command,
+    reset_runtime_state,
+)
 
 
 class FakeTodoistClient:
     def __init__(self) -> None:
         self.projects = {"to-do": {"id": 10, "path": "To-Do"}, "inbox": {"id": 1, "path": "Inbox"}}
         self.sections = {"to-do/joint to-do": {"id": 999, "project_id": 10, "path": "To-Do/Joint to-do"}}
+        self.tasks = [
+            {
+                "id": 101,
+                "content": "Buy milk",
+                "due": {"string": "tomorrow"},
+                "project_id": 1,
+                "section_id": None,
+            },
+            {
+                "id": 102,
+                "content": "Buy oat milk",
+                "due": None,
+                "project_id": 1,
+                "section_id": None,
+            },
+            {
+                "id": 103,
+                "content": "Submit report",
+                "due": None,
+                "project_id": 1,
+                "section_id": None,
+            },
+            {
+                "id": 104,
+                "content": "Create personal assistant bot",
+                "due": {"string": "today"},
+                "project_id": 10,
+                "section_id": 999,
+            },
+            {
+                "id": 105,
+                "content": "Create personal assistant bot",
+                "due": {"string": "today"},
+                "project_id": 1,
+                "section_id": None,
+            },
+        ]
 
     def create_task(
         self,
@@ -22,6 +64,20 @@ class FakeTodoistClient:
             result["section_id"] = section_id
         return result
 
+    def list_open_tasks(self, limit: int = 100):
+        return self.tasks[:limit]
+
+    def update_task(self, *, task_id: int, content: str | None = None, due_string: str | None = None):
+        for task in self.tasks:
+            if int(task["id"]) != int(task_id):
+                continue
+            if content is not None:
+                task["content"] = content
+            if due_string is not None:
+                task["due"] = {"string": due_string}
+            return {}
+        raise ValueError("task not found")
+
     def resolve_project(self, project_ref: str):
         key = project_ref.strip().lstrip("#").lower()
         if key in self.projects:
@@ -36,12 +92,6 @@ class FakeTodoistClient:
             return self.sections["to-do/joint to-do"]
         return None
 
-    def resolve_project_id(self, project_ref: str) -> int | None:
-        match = self.resolve_project(project_ref)
-        if not match:
-            return None
-        return int(match["id"])
-
     def suggest_projects(self, project_ref: str, limit: int = 3):
         return ["to-do", "inbox"][:limit]
 
@@ -53,6 +103,10 @@ class FakeTodoistClient:
 
     def list_section_paths(self, limit: int = 50):
         return ["To-Do/Joint to-do"][:limit]
+
+
+def setup_function() -> None:
+    reset_runtime_state()
 
 
 def test_parse_create_command_without_due() -> None:
@@ -69,6 +123,31 @@ def test_parse_create_command_with_due() -> None:
     assert command.content == "Buy milk"
     assert command.due_string == "tomorrow at 6pm"
     assert command.project_ref is None
+
+
+def test_parse_edit_command_with_set() -> None:
+    command = parse_edit_command("edit Buy milk /set Buy almond milk")
+    assert command is not None
+    assert command.selector == "Buy milk"
+    assert command.new_content == "Buy almond milk"
+    assert command.due_string is None
+
+
+def test_parse_edit_command_with_due_only() -> None:
+    command = parse_edit_command("edit Submit report /due next monday")
+    assert command is not None
+    assert command.selector == "Submit report"
+    assert command.new_content is None
+    assert command.due_string == "next monday"
+    assert command.project_ref is None
+
+
+def test_parse_edit_command_with_due_and_project() -> None:
+    command = parse_edit_command("edit Create personal assistant bot /due tomorrow /project to-do/joint to-do")
+    assert command is not None
+    assert command.selector == "Create personal assistant bot"
+    assert command.due_string == "tomorrow"
+    assert command.project_ref == "to-do/joint to-do"
 
 
 def test_parse_create_command_with_project_marker() -> None:
@@ -91,7 +170,7 @@ def test_parse_create_command_requires_prefix() -> None:
 
 def test_handle_text_help_when_unrecognized() -> None:
     reply = handle_text("what can you do", todoist_client=FakeTodoistClient())
-    assert "I can create Todoist tasks" in reply
+    assert "I can create and edit Todoist tasks" in reply
 
 
 def test_handle_text_create_confirmation() -> None:
@@ -130,3 +209,47 @@ def test_handle_text_list_sections() -> None:
     reply = handle_text("sections", todoist_client=FakeTodoistClient())
     assert "Sections:" in reply
     assert "- To-Do/Joint to-do" in reply
+
+
+def test_handle_text_list_tasks() -> None:
+    reply = handle_text("tasks", todoist_client=FakeTodoistClient())
+    assert "Open tasks:" in reply
+    assert "Buy milk" in reply
+
+
+def test_handle_text_edit_exact_match() -> None:
+    client = FakeTodoistClient()
+    reply = handle_text("edit Submit report /set Submit annual report", todoist_client=client)
+    assert 'Updated task [103]: "Submit report" -> "Submit annual report"' in reply
+
+
+def test_handle_text_edit_ambiguous_then_select() -> None:
+    client = FakeTodoistClient()
+    first = handle_text("edit buy /set Buy almond milk", todoist_client=client, chat_id=777)
+    assert "Reply with a number" in first
+    assert "1." in first
+
+    second = handle_text("2", todoist_client=client, chat_id=777)
+    assert 'Updated task [102]: "Buy oat milk" -> "Buy almond milk"' in second
+
+
+def test_handle_text_edit_pending_cancel() -> None:
+    client = FakeTodoistClient()
+    _ = handle_text("edit buy /set Buy soy milk", todoist_client=client, chat_id=999)
+    reply = handle_text("cancel", todoist_client=client, chat_id=999)
+    assert reply == "Okay, canceled that edit request."
+
+
+def test_handle_text_edit_not_found() -> None:
+    reply = handle_text("edit random task /set New title", todoist_client=FakeTodoistClient())
+    assert "Could not find an open task" in reply
+
+
+def test_handle_text_edit_with_project_filter() -> None:
+    client = FakeTodoistClient()
+    reply = handle_text(
+        "edit create personal assistant bot /due tomorrow /project to-do/joint to-do",
+        todoist_client=client,
+    )
+    assert 'Updated task [104]: "Create personal assistant bot" -> "Create personal assistant bot"' in reply
+    assert "(due: today -> tomorrow)." in reply

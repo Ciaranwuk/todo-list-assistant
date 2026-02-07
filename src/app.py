@@ -7,7 +7,7 @@ from config import load_settings
 from logging_config import configure_logging
 from orchestration.handler import handle_text
 from telegram.client import TelegramClient
-from todoist.client import TodoistClient
+from todoist.client import TodoistAPIError, TodoistClient
 
 
 def main() -> None:
@@ -33,7 +33,17 @@ def main() -> None:
                     )
                     continue
 
-                reply = handle_text(message.text, todoist)
+                try:
+                    reply = handle_text(message.text, todoist, chat_id=message.chat_id)
+                except TodoistAPIError as exc:
+                    logger.exception("Todoist request failed")
+                    reply = (
+                        "Todoist rejected that request. "
+                        f"Details: {exc.message}"
+                    )
+                except Exception:
+                    logger.exception("Message handling failed")
+                    reply = "Something went wrong while handling that message. Please try again."
                 telegram.send_message(chat_id=message.chat_id, text=reply)
 
         except Exception:

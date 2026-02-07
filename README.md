@@ -6,6 +6,7 @@ Telegram polling service that creates Todoist tasks from text commands.
 - Telegram bot polling (`getUpdates`)
 - User allowlist check
 - Deterministic task creation command
+- Deterministic task edit command (open tasks only)
 - Todoist task creation + confirmation message
 
 ## Command Format
@@ -13,6 +14,9 @@ Telegram polling service that creates Todoist tasks from text commands.
 - `add <task content> /due <todoist due string>`
 - `add <task content> /project <project path>`
 - `add <task content> #<project path>`
+- `edit <task selector> /set <new task content>`
+- `edit <task selector> /due <todoist due string>`
+- `edit <task selector> /due <todoist due string> /project <project-or-section path>`
 - Also accepts `create ...` and `todo ...` prefixes.
 
 Examples:
@@ -21,8 +25,12 @@ Examples:
 - `add Check bills /project To-Do/Joint to-do`
 - `add Book dentist #To-Do/Joint to-do`
 - `add Plan holiday /project joint` (fuzzy match if unambiguous)
+- `edit submit report /set submit annual report`
+- `edit submit report /due next monday`
+- `edit create personal assistant bot /due tomorrow /project to-do/joint to-do`
 - `projects` (lists known project paths)
 - `sections` (lists known section paths, e.g. `To-Do/Joint to-do`)
+- `tasks` (lists open tasks for easy selector discovery)
 
 ## Setup
 1. Create a virtualenv and install dependencies:
@@ -41,5 +49,5 @@ Examples:
 - `pytest -q src/tests`
 
 ## Notes
-- This stage intentionally uses deterministic parsing for create-task only.
+- This stage intentionally uses deterministic parsing for create/edit flows.
 - LLM parsing and follow-up state machine are planned in Milestone 3-4.

@@ -8,6 +8,13 @@ from typing import Any
 import requests
 
 
+class TodoistAPIError(RuntimeError):
+    def __init__(self, *, status_code: int, message: str) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.message = message
+
+
 def _normalize_project_ref(value: str) -> str:
     lowered = value.strip().lower()
     lowered = lowered.replace("\\", "/")
@@ -30,6 +37,22 @@ class TodoistClient:
         }
         self._timeout_seconds = timeout_seconds
 
+    def _request(self, method: str, path: str, **kwargs: Any) -> requests.Response:
+        response = requests.request(
+            method=method,
+            url=f"{self._base_url}{path}",
+            headers=self._headers,
+            timeout=self._timeout_seconds,
+            **kwargs,
+        )
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as exc:
+            raw = response.text.strip()
+            message = raw if raw else f"Todoist API error ({response.status_code})"
+            raise TodoistAPIError(status_code=response.status_code, message=message) from exc
+        return response
+
     def create_task(
         self,
         content: str,
@@ -45,31 +68,40 @@ class TodoistClient:
         if section_id is not None:
             payload["section_id"] = section_id
 
-        response = requests.post(
-            f"{self._base_url}/tasks",
-            headers=self._headers,
-            json=payload,
-            timeout=self._timeout_seconds,
-        )
-        response.raise_for_status()
+        response = self._request("POST", "/tasks", json=payload)
+        return response.json()
+
+    def list_open_tasks(self, limit: int = 100) -> list[dict[str, Any]]:
+        response = self._request("GET", "/tasks")
+        tasks = response.json()
+        return tasks[:limit]
+
+    def update_task(
+        self,
+        *,
+        task_id: int,
+        content: str | None = None,
+        due_string: str | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {}
+        if content is not None:
+            payload["content"] = content
+        if due_string is not None:
+            payload["due_string"] = due_string
+        if not payload:
+            raise ValueError("update_task requires at least one field to update")
+
+        response = self._request("POST", f"/tasks/{task_id}", json=payload)
+        if response.status_code == 204 or not response.text:
+            return {}
         return response.json()
 
     def list_projects(self) -> list[dict[str, Any]]:
-        response = requests.get(
-            f"{self._base_url}/projects",
-            headers=self._headers,
-            timeout=self._timeout_seconds,
-        )
-        response.raise_for_status()
+        response = self._request("GET", "/projects")
         return response.json()
 
     def list_sections(self) -> list[dict[str, Any]]:
-        response = requests.get(
-            f"{self._base_url}/sections",
-            headers=self._headers,
-            timeout=self._timeout_seconds,
-        )
-        response.raise_for_status()
+        response = self._request("GET", "/sections")
         return response.json()
 
     @lru_cache(maxsize=1)

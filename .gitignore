@@ -5,3 +5,4 @@ __pycache__/
 assistant.db
 personal_assistant/
 personal_assistant_chat
+AGENTS.md
