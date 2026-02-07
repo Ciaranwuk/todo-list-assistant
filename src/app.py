@@ -6,6 +6,7 @@ import time
 from config import load_settings
 from logging_config import configure_logging
 from orchestration.handler import handle_text
+from parser.llm_parser import OpenAILLMParser
 from telegram.client import TelegramClient
 from todoist.client import TodoistAPIError, TodoistClient
 
@@ -17,6 +18,15 @@ def main() -> None:
     logger = logging.getLogger("assistant")
     telegram = TelegramClient(settings.telegram_bot_token)
     todoist = TodoistClient(settings.todoist_api_token)
+    llm_parser = None
+    if settings.openai_api_key and settings.openai_model:
+        llm_parser = OpenAILLMParser(
+            api_key=settings.openai_api_key,
+            model=settings.openai_model,
+        )
+        logger.info("LLM parser enabled")
+    else:
+        logger.info("LLM parser disabled (missing OPENAI_API_KEY or OPENAI_MODEL)")
 
     offset: int | None = None
     logger.info("Assistant started with Telegram polling")
@@ -34,7 +44,12 @@ def main() -> None:
                     continue
 
                 try:
-                    reply = handle_text(message.text, todoist, chat_id=message.chat_id)
+                    reply = handle_text(
+                        message.text,
+                        todoist,
+                        chat_id=message.chat_id,
+                        llm_parser=llm_parser,
+                    )
                 except TodoistAPIError as exc:
                     logger.exception("Todoist request failed")
                     reply = (

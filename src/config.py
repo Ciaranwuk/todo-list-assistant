@@ -11,6 +11,8 @@ class Settings:
     telegram_bot_token: str
     telegram_allowed_user_ids: set[int]
     todoist_api_token: str
+    openai_api_key: str | None
+    openai_model: str | None
     log_level: str
     poll_interval_seconds: float
 
@@ -48,10 +50,15 @@ def _parse_allowed_user_ids(raw: str) -> set[int]:
 def load_settings() -> Settings:
     load_dotenv()
 
+    openai_api_key = os.getenv("OPENAI_API_KEY", "").strip() or None
+    openai_model = os.getenv("OPENAI_MODEL", "").strip() or None
+
     return Settings(
         telegram_bot_token=_require_env("TELEGRAM_BOT_TOKEN"),
         telegram_allowed_user_ids=_parse_allowed_user_ids(_require_env("TELEGRAM_ALLOWED_USER_IDS")),
         todoist_api_token=_require_env("TODOIST_API_TOKEN"),
+        openai_api_key=openai_api_key,
+        openai_model=openai_model,
         log_level=os.getenv("LOG_LEVEL", "INFO").strip() or "INFO",
         poll_interval_seconds=float(os.getenv("POLL_INTERVAL_SECONDS", "2")),
     )

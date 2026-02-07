@@ -96,6 +96,9 @@ class TodoistClient:
             return {}
         return response.json()
 
+    def close_task(self, *, task_id: int) -> None:
+        self._request("POST", f"/tasks/{task_id}/close")
+
     def list_projects(self) -> list[dict[str, Any]]:
         response = self._request("GET", "/projects")
         return response.json()
